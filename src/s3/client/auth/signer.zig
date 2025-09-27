@@ -249,6 +249,7 @@ fn createCanonicalRequest(allocator: Allocator, params: SigningParams) ![]const 
     const payload_hash = if (params.body) |body|
         try hashPayload(allocator, body)
     else
+        // SHA256 hash of empty string, pretty funny
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     defer if (params.body != null) allocator.free(payload_hash);
     try canonical.appendSlice(allocator, payload_hash);
@@ -381,13 +382,9 @@ fn createCanonicalQueryString(allocator: Allocator, path: []const u8) ![]const u
 }
 
 /// Calculate SHA256 hash of payload
-pub fn hashPayload(allocator: Allocator, payload: ?[]const u8) ![]const u8 {
+pub fn hashPayload(allocator: Allocator, payload: []const u8) ![]const u8 {
     var hash: [crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
-    if (payload) |data| {
-        crypto.hash.sha2.Sha256.hash(data, &hash, .{});
-    } else {
-        crypto.hash.sha2.Sha256.hash("", &hash, .{});
-    }
+    crypto.hash.sha2.Sha256.hash(payload, &hash, .{});
     return std.fmt.allocPrint(allocator, "{x}", .{hash});
 }
 

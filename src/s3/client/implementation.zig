@@ -116,7 +116,7 @@ pub const S3Client = struct {
         try headers.put("host", uri_host);
 
         // Calculate content hash
-        const content_hash = try signer.hashPayload(self.allocator, body);
+        const content_hash = try signer.hashPayload(self.allocator, body orelse "");
         defer self.allocator.free(content_hash);
         try headers.put("x-amz-content-sha256", content_hash);
 
@@ -152,6 +152,10 @@ pub const S3Client = struct {
 
         log.debug("Generated auth header: {s}", .{auth_header});
 
+        // MinIO isn't sending Content-Length for DELETE operations.
+        // This results in the fetch hanging until the socket times out (~30s).
+        const keep_alive: bool = method != .DELETE;
+
         return try self.http_client.fetch(.{
             .method = method,
             .location = .{ .uri = uri },
@@ -166,6 +170,7 @@ pub const S3Client = struct {
                 .{ .name = "Authorization", .value = auth_header },
             },
             .payload = body,
+            .keep_alive = keep_alive,
             .response_writer = writer,
         });
     }
