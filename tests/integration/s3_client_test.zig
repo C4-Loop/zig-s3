@@ -141,6 +141,12 @@ test "create simple bucket" {
     std.debug.print("Bucket '{s}' deleted successfully\n", .{bucket_name});
 }
 
+test "post policy" {
+    var policy = s3.PostPolicy.expires_in(allocator, 60);
+    defer policy.deinit();
+    try policy.add(.{ .variable = .acl, .match = .{ .exact = "" } });
+}
+
 // test "upload simple file to test-bucket" {
 //     std.debug.print("\n=== Starting simple file upload test ===\n", .{});
 
