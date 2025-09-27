@@ -151,8 +151,8 @@ pub fn signRequest(allocator: Allocator, credentials: Credentials, params: Signi
     defer allocator.free(signature);
 
     // Get signed headers string
-    var header_names = std.ArrayList([]const u8).init(allocator);
-    defer header_names.deinit();
+    var header_names: std.ArrayList([]const u8) = .empty;
+    defer header_names.deinit(allocator);
     defer {
         for (header_names.items) |name| {
             allocator.free(name);
@@ -162,7 +162,7 @@ pub fn signRequest(allocator: Allocator, credentials: Credentials, params: Signi
     var header_it = params.headers.iterator();
     while (header_it.next()) |entry| {
         const lower_name = try std.ascii.allocLowerString(allocator, entry.key_ptr.*);
-        try header_names.append(lower_name);
+        try header_names.append(allocator, lower_name);
     }
 
     std.mem.sortUnstable([]const u8, header_names.items, {}, struct {
@@ -189,29 +189,30 @@ pub fn signRequest(allocator: Allocator, credentials: Credentials, params: Signi
 
 /// Create canonical request string for signing
 fn createCanonicalRequest(allocator: Allocator, params: SigningParams) ![]const u8 {
-    var canonical = std.ArrayList(u8).init(allocator);
-    errdefer canonical.deinit();
+    var canonical: std.ArrayList(u8) = .empty;
+    errdefer canonical.deinit(allocator);
 
     // Add HTTP method (uppercase)
-    try canonical.appendSlice(params.method);
-    try canonical.append('\n');
+    try canonical.appendSlice(allocator, params.method);
+    try canonical.append(allocator, '\n');
 
     // Add canonical URI (must be normalized)
-    try canonical.appendSlice(params.path);
-    try canonical.append('\n');
+    try canonical.appendSlice(allocator, params.path);
+    try canonical.append(allocator, '\n');
 
     // Add canonical query string (empty for now)
-    try canonical.append('\n');
+    try canonical.append(allocator, '\n');
 
     // Create sorted list of header names for consistent ordering
-    var header_names = std.ArrayList([]const u8).init(allocator);
-    defer header_names.deinit();
+    var header_names: std.ArrayList([]const u8) = .empty;
+    defer header_names.deinit(allocator);
 
     var header_it = params.headers.iterator();
     while (header_it.next()) |entry| {
         // Convert header names to lowercase
         const lower_name = try std.ascii.allocLowerString(allocator, entry.key_ptr.*);
-        try header_names.append(lower_name);
+        errdefer allocator.free(lower_name);
+        try header_names.append(allocator, lower_name);
     }
     defer {
         for (header_names.items) |name| {
@@ -231,18 +232,18 @@ fn createCanonicalRequest(allocator: Allocator, params: SigningParams) ![]const 
         const value = params.headers.get(name) orelse continue;
         // Trim and normalize value
         const trimmed_value = std.mem.trim(u8, value, " \t\r\n");
-        try canonical.appendSlice(name);
-        try canonical.append(':');
-        try canonical.appendSlice(trimmed_value);
-        try canonical.append('\n');
+        try canonical.appendSlice(allocator, name);
+        try canonical.append(allocator, ':');
+        try canonical.appendSlice(allocator, trimmed_value);
+        try canonical.append(allocator, '\n');
     }
-    try canonical.append('\n');
+    try canonical.append(allocator, '\n');
 
     // Add signed headers
     const signed_headers = try std.mem.join(allocator, ";", header_names.items);
     defer allocator.free(signed_headers);
-    try canonical.appendSlice(signed_headers);
-    try canonical.append('\n');
+    try canonical.appendSlice(allocator, signed_headers);
+    try canonical.append(allocator, '\n');
 
     // Add payload hash
     const payload_hash = if (params.body) |body|
@@ -250,9 +251,9 @@ fn createCanonicalRequest(allocator: Allocator, params: SigningParams) ![]const 
     else
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     defer if (params.body != null) allocator.free(payload_hash);
-    try canonical.appendSlice(payload_hash);
+    try canonical.appendSlice(allocator, payload_hash);
 
-    return canonical.toOwnedSlice();
+    return canonical.toOwnedSlice(allocator);
 }
 
 /// Get credential scope string
@@ -303,30 +304,30 @@ fn createStringToSign(
     canonical_request: []const u8,
     timestamp: i64,
 ) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
+    var result: std.ArrayList(u8) = .empty;
+    errdefer result.deinit(allocator);
 
     // Algorithm
-    try result.appendSlice("AWS4-HMAC-SHA256\n");
+    try result.appendSlice(allocator, "AWS4-HMAC-SHA256\n");
 
     // Get the full datetime string for the second line
     const datetime_str = try time_utils.formatAmzDateTime(allocator, timestamp);
     defer allocator.free(datetime_str);
-    try result.appendSlice(datetime_str);
-    try result.append('\n');
+    try result.appendSlice(allocator, datetime_str);
+    try result.append(allocator, '\n');
 
     // Credential scope
-    try result.appendSlice(credential_scope);
-    try result.append('\n');
+    try result.appendSlice(allocator, credential_scope);
+    try result.append(allocator, '\n');
 
     // Hashed canonical request
     var hash: [crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     crypto.hash.sha2.Sha256.hash(canonical_request, &hash, .{});
-    const hash_hex = try std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hash)});
+    const hash_hex = try std.fmt.allocPrint(allocator, "{x}", .{hash});
     defer allocator.free(hash_hex);
-    try result.appendSlice(hash_hex);
+    try result.appendSlice(allocator, hash_hex);
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// Calculate request signature using derived signing key
@@ -340,7 +341,7 @@ fn calculateSignature(
     crypto.auth.hmac.sha2.HmacSha256.create(&hmac, string_to_sign, signing_key);
 
     // Convert to hex
-    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hmac)});
+    return std.fmt.allocPrint(allocator, "{x}", .{hmac});
 }
 
 /// Create final authorization header value
@@ -387,7 +388,7 @@ pub fn hashPayload(allocator: Allocator, payload: ?[]const u8) ![]const u8 {
     } else {
         crypto.hash.sha2.Sha256.hash("", &hash, .{});
     }
-    return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.fmtSliceHexLower(&hash)});
+    return std.fmt.allocPrint(allocator, "{x}", .{hash});
 }
 
 fn deriveSigningKey(

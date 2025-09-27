@@ -36,12 +36,11 @@ pub fn createBucket(self: *S3Client, bucket_name: []const u8) !void {
     defer self.allocator.free(uri_str);
     std.debug.print("Constructed URI: {s}\n", .{uri_str});
 
-    var req = try self.request(.PUT, try Uri.parse(uri_str), null);
-    defer req.deinit();
+    const res = try self.request(.PUT, try Uri.parse(uri_str), "", null);
     std.debug.print("Sent PUT request to create bucket\n", .{});
 
-    if (req.response.status != .ok and req.response.status != .created) {
-        switch (req.response.status) {
+    if (res.status != .ok and res.status != .created) {
+        switch (res.status) {
             .conflict => {
                 std.debug.print("Bucket already exists: {s}\n", .{bucket_name});
                 return S3Error.BucketAlreadyExists;
@@ -59,7 +58,7 @@ pub fn createBucket(self: *S3Client, bucket_name: []const u8) !void {
                 return S3Error.ServiceUnavailable;
             },
             else => {
-                std.debug.print("Failed to create bucket: {s}, status: {}\n", .{ bucket_name, req.response.status });
+                std.debug.print("Failed to create bucket: {s}, status: {}\n", .{ bucket_name, res.status });
                 return S3Error.InvalidResponse;
             },
         }
@@ -89,10 +88,8 @@ pub fn deleteBucket(self: *S3Client, bucket_name: []const u8) !void {
     const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}", .{ endpoint, bucket_name });
     defer self.allocator.free(uri_str);
 
-    var req = try self.request(.DELETE, try Uri.parse(uri_str), null);
-    defer req.deinit();
-
-    if (req.response.status != .no_content) {
+    const res = try self.request(.DELETE, try Uri.parse(uri_str), null, null);
+    if (res.status != .no_content) {
         return S3Error.InvalidResponse;
     }
 }
@@ -129,41 +126,40 @@ pub fn listBuckets(self: *S3Client) ![]BucketInfo {
         try fmt.allocPrint(self.allocator, "https://s3.{s}.amazonaws.com", .{self.config.region});
     defer if (self.config.endpoint == null) self.allocator.free(endpoint);
 
-    log.debug("Requesting list of buckets from endpoint: {s}", .{endpoint});
-    var req = try self.request(.GET, try Uri.parse(endpoint), null);
-    defer req.deinit();
+    var response_writer = std.Io.Writer.Allocating.init(self.allocator);
+    defer response_writer.deinit();
 
-    switch (req.response.status) {
+    log.debug("Requesting list of buckets from endpoint: {s}", .{endpoint});
+    const res = try self.request(.GET, try Uri.parse(endpoint), null, &response_writer.writer);
+    switch (res.status) {
         .ok => {},
         .unauthorized, .forbidden => {
-            log.err("Authentication failed: {}", .{req.response.status});
+            log.err("Authentication failed: {}", .{res.status});
             return S3Error.InvalidCredentials;
         },
         .bad_request => {
-            log.err("Bad request: {}", .{req.response.status});
+            log.err("Bad request: {}", .{res.status});
             return S3Error.InvalidResponse;
         },
         else => {
-            log.err("Unexpected response status: {}", .{req.response.status});
+            log.err("Unexpected response status: {}", .{res.status});
             return S3Error.InvalidResponse;
         },
     }
 
     log.debug("Reading response body", .{});
-    const max_size = 1024 * 1024; // 1MB max response size
-    const body = try req.reader().readAllAlloc(self.allocator, max_size);
-    defer self.allocator.free(body);
+    const body = response_writer.written();
 
     log.debug("Raw response: {s}", .{body});
 
     log.debug("Parsing XML response", .{});
-    var buckets = std.ArrayList(BucketInfo).init(self.allocator);
+    var buckets: std.ArrayList(BucketInfo) = .empty;
     errdefer {
         for (buckets.items) |bucket| {
             self.allocator.free(bucket.name);
             self.allocator.free(bucket.creation_date);
         }
-        buckets.deinit();
+        buckets.deinit(self.allocator);
     }
 
     var it = std.mem.splitSequence(u8, body, "<Bucket>");
@@ -182,14 +178,14 @@ pub fn listBuckets(self: *S3Client) ![]BucketInfo {
         const date = try self.allocator.dupe(u8, bucket_xml[date_start + 14 .. date_end]);
         log.debug("Bucket creation date: {s}", .{date});
 
-        try buckets.append(.{
+        try buckets.append(self.allocator, .{
             .name = name,
             .creation_date = date,
         });
     }
 
     log.info("Found {} buckets total", .{buckets.items.len});
-    return buckets.toOwnedSlice();
+    return buckets.toOwnedSlice(self.allocator);
 }
 
 test "bucket operations" {

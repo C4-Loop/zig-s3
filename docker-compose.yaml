@@ -1,0 +1,8 @@
+services:
+  minio:
+    image: minio/minio
+    environment:
+      ZIG_SERVER: http://server:3333
+    ports:
+      - 9000:9000
+    command: "server /data"

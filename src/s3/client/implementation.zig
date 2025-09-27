@@ -89,7 +89,8 @@ pub const S3Client = struct {
         method: http.Method,
         uri: Uri,
         body: ?[]const u8,
-    ) !http.Client.Request {
+        writer: ?*std.io.Writer,
+    ) !http.Client.FetchResult {
         log.debug("Starting S3 request: method={s}", .{@tagName(method)});
 
         // Create headers map for signing
@@ -151,35 +152,22 @@ pub const S3Client = struct {
 
         log.debug("Generated auth header: {s}", .{auth_header});
 
-        var server_header_buffer: [8192]u8 = undefined;
-        var req = try self.http_client.open(method, uri, .{
-            .server_header_buffer = &server_header_buffer,
+        return try self.http_client.fetch(.{
+            .method = method,
+            .location = .{ .uri = uri },
+            .headers = .{
+                .host = .{ .override = uri_host },
+                .content_type = .{ .override = "application/xml" },
+            },
             .extra_headers = &[_]http.Header{
                 .{ .name = "Accept", .value = "application/xml" },
                 .{ .name = "x-amz-content-sha256", .value = content_hash },
                 .{ .name = "x-amz-date", .value = amz_date },
                 .{ .name = "Authorization", .value = auth_header },
             },
+            .payload = body,
+            .response_writer = writer,
         });
-        errdefer req.deinit();
-
-        req.headers.host = .{ .override = uri_host };
-        req.headers.content_type = .{ .override = "application/xml" };
-
-        if (body) |b| {
-            req.transfer_encoding = .{ .content_length = b.len };
-        }
-
-        try req.send();
-
-        if (body) |b| {
-            try req.writeAll(b);
-        }
-
-        try req.finish();
-        try req.wait();
-
-        return req;
     }
 };
 
@@ -196,15 +184,15 @@ test "S3Client request signing" {
     defer client.deinit();
 
     const uri = try Uri.parse("https://examplebucket.s3.amazonaws.com/test.txt");
-    var req = try client.request(.GET, uri, null);
-    defer req.deinit();
+    var res = try client.request(.GET, uri, null);
+    defer res.deinit();
 
     // Verify authorization header is present
-    try std.testing.expect(req.headers.contains("authorization"));
+    try std.testing.expect(res.headers.contains("authorization"));
 
     // Verify required AWS headers are present
-    try std.testing.expect(req.headers.contains("x-amz-content-sha256"));
-    try std.testing.expect(req.headers.contains("x-amz-date"));
+    try std.testing.expect(res.headers.contains("x-amz-content-sha256"));
+    try std.testing.expect(res.headers.contains("x-amz-date"));
 }
 
 test "S3Client initialization" {
@@ -255,13 +243,13 @@ test "S3Client request with body" {
 
     const uri = try Uri.parse("https://example.s3.amazonaws.com/test.txt");
     const body = "Hello, S3!";
-    var req = try client.request(.PUT, uri, body);
-    defer req.deinit();
+    var res = try client.request(.PUT, uri, body);
+    defer res.deinit();
 
-    try std.testing.expect(req.headers.contains("authorization"));
-    try std.testing.expect(req.headers.contains("x-amz-content-sha256"));
-    try std.testing.expect(req.headers.contains("x-amz-date"));
-    try std.testing.expect(req.transfer_encoding.content_length == body.len);
+    try std.testing.expect(res.headers.contains("authorization"));
+    try std.testing.expect(res.headers.contains("x-amz-content-sha256"));
+    try std.testing.expect(res.headers.contains("x-amz-date"));
+    try std.testing.expect(res.transfer_encoding.content_length == body.len);
 }
 
 test "S3Client error handling" {
@@ -277,11 +265,11 @@ test "S3Client error handling" {
     defer client.deinit();
 
     const uri = try Uri.parse("https://example.s3.amazonaws.com/test.txt");
-    var req = try client.request(.GET, uri, null);
-    defer req.deinit();
+    var res = try client.request(.GET, uri, null);
+    defer res.deinit();
 
     // Test error mapping
-    switch (req.response.status) {
+    switch (res.response.status) {
         .unauthorized => try std.testing.expectError(S3Error.InvalidCredentials, S3Error.InvalidCredentials),
         .forbidden => try std.testing.expectError(S3Error.InvalidCredentials, S3Error.InvalidCredentials),
         .not_found => try std.testing.expectError(S3Error.BucketNotFound, S3Error.BucketNotFound),

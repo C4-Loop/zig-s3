@@ -16,11 +16,14 @@ pub fn build(b: *std.Build) void {
     });
 
     // Create the library that others can use as a dependency
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "s3-client",
-        .root_source_file = b.path("src/s3/lib.zig"),
-        .target = target,
-        .optimize = optimize,
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/s3/lib.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     lib.root_module.addImport("s3", s3_module);
     lib.root_module.addImport("dotenv", dotenv_dep.module("dotenv"));
@@ -29,9 +32,11 @@ pub fn build(b: *std.Build) void {
     // Create the example executable
     const exe = b.addExecutable(.{
         .name = "s3-example",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     exe.root_module.addImport("s3", s3_module);
     exe.root_module.addImport("dotenv", dotenv_dep.module("dotenv"));
@@ -48,9 +53,11 @@ pub fn build(b: *std.Build) void {
 
     // Unit tests
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/s3/lib.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/s3/lib.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     unit_tests.root_module.addImport("dotenv", dotenv_dep.module("dotenv"));
     const run_unit_tests = b.addRunArtifact(unit_tests);
@@ -59,9 +66,11 @@ pub fn build(b: *std.Build) void {
 
     // Integration tests
     const integration_tests = b.addTest(.{
-        .root_source_file = b.path("tests/integration/s3_client_test.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/s3_client_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     integration_tests.root_module.addImport("s3", s3_module);
     integration_tests.root_module.addImport("dotenv", dotenv_dep.module("dotenv"));

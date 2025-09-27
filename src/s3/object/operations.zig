@@ -36,10 +36,10 @@ pub fn putObject(self: *S3Client, bucket_name: []const u8, key: []const u8, data
     const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
     defer self.allocator.free(uri_str);
 
-    var req = try self.request(.PUT, try Uri.parse(uri_str), data);
-    defer req.deinit();
+    var res = try self.request(.PUT, try Uri.parse(uri_str), data);
+    defer res.deinit();
 
-    if (req.response.status != .ok) {
+    if (res.response.status != .ok) {
         return S3Error.InvalidResponse;
     }
 }
@@ -69,18 +69,18 @@ pub fn getObject(self: *S3Client, bucket_name: []const u8, key: []const u8) ![]c
     const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
     defer self.allocator.free(uri_str);
 
-    var req = try self.request(.GET, try Uri.parse(uri_str), null);
-    defer req.deinit();
+    var res = try self.request(.GET, try Uri.parse(uri_str), null);
+    defer res.deinit();
 
-    if (req.response.status == .not_found) {
+    if (res.response.status == .not_found) {
         return S3Error.ObjectNotFound;
     }
-    if (req.response.status != .ok) {
+    if (res.response.status != .ok) {
         return S3Error.InvalidResponse;
     }
 
     // TODO: Support streaming for large objects
-    return try req.reader().readAllAlloc(self.allocator, 1024 * 1024); // 1MB max
+    return try res.reader().readAllAlloc(self.allocator, 1024 * 1024); // 1MB max
 }
 
 /// Delete an object from S3.
@@ -104,10 +104,10 @@ pub fn deleteObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !
     const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
     defer self.allocator.free(uri_str);
 
-    var req = try self.request(.DELETE, try Uri.parse(uri_str), null);
-    defer req.deinit();
+    var res = try self.request(.DELETE, try Uri.parse(uri_str), null);
+    defer res.deinit();
 
-    if (req.response.status != .no_content) {
+    if (res.response.status != .no_content) {
         return S3Error.InvalidResponse;
     }
 }
@@ -187,19 +187,19 @@ pub fn listObjects(
     });
     defer self.allocator.free(uri_str);
 
-    var req = try self.request(.GET, try Uri.parse(uri_str), null);
-    defer req.deinit();
+    var res = try self.request(.GET, try Uri.parse(uri_str), null);
+    defer res.deinit();
 
-    if (req.response.status == .not_found) {
+    if (res.response.status == .not_found) {
         return S3Error.BucketNotFound;
     }
-    if (req.response.status != .ok) {
+    if (res.response.status != .ok) {
         return S3Error.InvalidResponse;
     }
 
     // Read response body
     const max_size = 1024 * 1024; // 1MB max response size
-    const body = try req.reader().readAllAlloc(self.allocator, max_size);
+    const body = try res.reader().readAllAlloc(self.allocator, max_size);
     defer self.allocator.free(body);
 
     // Parse XML response

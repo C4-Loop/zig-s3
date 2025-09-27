@@ -88,7 +88,9 @@ pub fn main() !void {
     }
 
     // Print bucket information
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll("\nAvailable buckets:\n");
     for (buckets) |bucket| {
         std.log.info("Bucket found: {s}", .{bucket.name});
