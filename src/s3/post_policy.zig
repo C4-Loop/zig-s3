@@ -187,8 +187,8 @@ pub fn expires_at(alloc: Allocator, unix_timestamp_secs: i64) Self {
 }
 
 /// Create a POST Policy that expires in a certain number of seconds from now.
-pub fn expires_in(alloc: Allocator, seconds: i64) Self {
-    return .expires_at(alloc, std.time.timestamp() + seconds);
+pub fn expires_in(alloc: Allocator, seconds: u64) Self {
+    return .expires_at(alloc, std.time.timestamp() + @as(i64, @intCast(seconds)));
 }
 
 pub fn deinit(self: *Self) void {
@@ -257,19 +257,19 @@ pub fn jsonStringify(self: *const Self, jws: anytype) !void {
     try jws.endObject();
 }
 
-pub const PresignedPostPolicy = struct {
+pub const Presigned = struct {
     _arena: ArenaAllocator,
 
     post_url: []const u8,
     form_data: FormData, // NOTE: not owned by the arena
 
-    pub fn deinit(self: *PresignedPostPolicy) void {
+    pub fn deinit(self: *Presigned) void {
         self.form_data.deinit();
         self._arena.deinit();
     }
 };
 
-pub fn presign(self: *Self, config: *const S3Config) !PresignedPostPolicy {
+pub fn presign(self: *Self, config: *const S3Config) !Presigned {
     var arena: ArenaAllocator = .init(self._alloc);
     errdefer arena.deinit();
     const alloc: Allocator = arena.allocator();
