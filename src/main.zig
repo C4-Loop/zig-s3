@@ -46,7 +46,6 @@ fn loadEnvVars() !s3.S3Config {
     return s3.S3Config{
         .access_key_id = access_key.?,
         .secret_access_key = secret_key.?,
-        .region = "us-west-1",
         .endpoint = endpoint.?,
     };
 }

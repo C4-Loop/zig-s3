@@ -89,7 +89,6 @@ pub fn main() !void {
     var client = try s3.S3Client.init(allocator, .{
         .access_key_id = "your-key",
         .secret_access_key = "your-secret",
-        .region = "us-east-1",
         // Optional: Use with MinIO or other S3-compatible services
         // .endpoint = "http://localhost:9000",
     });
@@ -114,7 +113,6 @@ The main client interface for S3 operations.
 const client = try s3.S3Client.init(allocator, .{
     .access_key_id = "your-key",
     .secret_access_key = "your-secret",
-    .region = "us-east-1",
     .endpoint = "http://localhost:9000", // Optional, for S3-compatible services
 });
 ```

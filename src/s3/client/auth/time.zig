@@ -84,7 +84,7 @@ pub const UtcDateTime = struct {
 
     pub fn jsonStringify(self: *const UtcDateTime, jws: anytype) !void {
         try jws.print(
-            "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z",
+            "\"{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z\"",
             .{ self.year, self.month, self.day, self.hour, self.minute, self.second },
         );
     }

@@ -23,7 +23,7 @@ pub const S3Config = struct {
     /// AWS secret access key or compatible credential
     secret_access_key: []const u8,
     /// AWS region (e.g., "us-east-1")
-    region: []const u8,
+    region: []const u8 = "us-east-1",
     /// Optional custom endpoint for S3-compatible services (e.g., MinIO, LocalStack)
     endpoint: ?[]const u8 = null,
 };
@@ -182,7 +182,6 @@ test "S3Client request signing" {
     const config = S3Config{
         .access_key_id = "AKIAIOSFODNN7EXAMPLE",
         .secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        .region = "us-east-1",
     };
 
     var client = try S3Client.init(allocator, config);
@@ -206,8 +205,6 @@ test "S3Client initialization" {
     const config = S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
-        .endpoint = null,
     };
 
     var client = try S3Client.init(allocator, config);
@@ -224,7 +221,6 @@ test "S3Client custom endpoint" {
     const config = S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
         .endpoint = "http://localhost:9000",
     };
 
@@ -240,7 +236,6 @@ test "S3Client request with body" {
     const config = S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var client = try S3Client.init(allocator, config);
@@ -263,7 +258,6 @@ test "S3Client error handling" {
     const config = S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var client = try S3Client.init(allocator, config);

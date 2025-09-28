@@ -12,7 +12,6 @@
 //! var client = try S3Client.init(allocator, .{
 //!     .access_key_id = "your-key",
 //!     .secret_access_key = "your-secret",
-//!     .region = "us-east-1",
 //! });
 //! defer client.deinit();
 //!
@@ -25,7 +24,6 @@ const client = @import("client/implementation.zig");
 const bucket_ops = @import("bucket/operations.zig");
 const object_ops = @import("object/operations.zig");
 
-pub const String = @import("string.zig").String;
 pub const PostPolicy = @import("post_policy.zig");
 
 /// Possible errors that can occur during S3 operations.

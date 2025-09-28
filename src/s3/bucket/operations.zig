@@ -195,7 +195,6 @@ test "bucket operations" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -212,7 +211,6 @@ test "bucket operations error handling" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -238,7 +236,6 @@ test "bucket operations with custom endpoint" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
         .endpoint = "http://localhost:9000",
     };
 
@@ -257,7 +254,6 @@ test "bucket name validation" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -301,7 +297,6 @@ test "list buckets" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -343,7 +338,6 @@ test "list buckets with custom endpoint" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
         .endpoint = "http://localhost:9000",
     };
 
@@ -373,7 +367,6 @@ test "list buckets error handling" {
     const config = client_impl.S3Config{
         .access_key_id = "invalid-key",
         .secret_access_key = "invalid-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -392,7 +385,6 @@ test "bucket lifecycle with validation" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -456,7 +448,6 @@ test "bucket operations with special characters" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -524,7 +515,6 @@ test "bucket operations concurrency" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -578,7 +568,6 @@ test "bucket operations error cases" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -619,7 +608,6 @@ test "bucket operations with empty strings" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);

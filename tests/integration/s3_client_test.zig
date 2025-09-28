@@ -32,7 +32,6 @@ fn loadEnvVars() !s3.S3Config {
     return s3.S3Config{
         .access_key_id = access_key.?,
         .secret_access_key = secret_key.?,
-        .region = "us-west-1",
         .endpoint = endpoint.?,
     };
 }
@@ -144,28 +143,35 @@ test "create simple bucket" {
 test "post policy" {
     std.debug.print("\n=== Starting Presigned POST Policy test ===\n", .{});
 
-    // Initialize client
-    std.debug.print("Loading env vars...\n", .{});
-    const config = try loadEnvVars();
-    std.debug.print("Loaded config with endpoint: {?s}\n", .{config.endpoint});
-
-    std.debug.print("Initializing client...\n", .{});
-    var client = try s3.S3Client.init(allocator, config);
-    defer client.deinit();
-    std.debug.print("Client initialized successfully\n", .{});
-
-    const bucket_name: s3.String = .static("integration-test-bucket-123");
+    const config: s3.S3Config = .{
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
+    };
+    const bucket_name = "integration-test-bucket-123";
 
     var policy = s3.PostPolicy.expires_in(allocator, 60);
     defer policy.deinit();
     try policy.setBucket(bucket_name);
-    try policy.setKey(.static("my-key"));
-    try policy.setContentType(.static("image/jpeg"));
-    try policy.setContentLengthRange(1, 8 * 1024 * 1024); // 1MB max
-    try policy.add(.{ .variable = .{ .@"x-amz-checksum-algorithm" = .SHA256 }, .match = .{ .exact = .borrow("base64 hash") } });
+    try policy.setKey("my-key");
+    try policy.setContentType("image/jpeg");
+    try policy.setContentLengthRange(1, 8 * 1024 * 1024); // 8MB max
+    try policy.add(.{ .variable = .{ .@"x-amz-checksum-algorithm" = .SHA256 }, .match = .{ .exact = "base64 hash" } });
 
     var presigned = try policy.presign(&config);
     defer presigned.deinit();
+
+    const policy_base64 = presigned.form_data.get("policy").?;
+    const buffer_size = try std.base64.standard.Decoder.calcSizeForSlice(policy_base64);
+    const decoded_policy = try testing.allocator.alloc(u8, buffer_size);
+    defer testing.allocator.free(decoded_policy);
+    try std.base64.standard.Decoder.decode(decoded_policy, policy_base64);
+
+    // Try to parse decoded policy as JSON
+    const result = try std.json.parseFromSlice(std.json.Value, testing.allocator, decoded_policy, .{});
+    defer result.deinit();
+
+    try testing.expectEqualStrings(presigned.post_url, "http://localhost:9000/integration-test-bucket-123/my-key");
 }
 
 // test "upload simple file to test-bucket" {

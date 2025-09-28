@@ -324,7 +324,6 @@ test "upload different types" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -364,7 +363,6 @@ test "list objects basic" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -424,7 +422,6 @@ test "list objects with prefix" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -478,7 +475,6 @@ test "list objects pagination" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -547,7 +543,6 @@ test "list objects error cases" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -575,7 +570,6 @@ test "object operations" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -598,7 +592,6 @@ test "object operations error handling" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -624,7 +617,6 @@ test "object operations with large data" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -656,7 +648,6 @@ test "object operations with custom endpoint" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
         .endpoint = "http://localhost:9000",
     };
 
@@ -681,7 +672,6 @@ test "object key validation" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -729,7 +719,6 @@ test "list objects empty bucket" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -753,7 +742,6 @@ test "list objects with multiple prefixes" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -826,7 +814,6 @@ test "list objects pagination with various sizes" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -918,7 +905,6 @@ test "list objects with special characters in prefix" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -975,7 +961,6 @@ test "ObjectUploader basic functionality" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -1035,7 +1020,6 @@ test "ObjectUploader file operations" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -1087,7 +1071,6 @@ test "ObjectUploader error cases" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -1129,7 +1112,6 @@ test "ObjectUploader with custom endpoint" {
     const config = client_impl.S3Config{
         .access_key_id = "test-key",
         .secret_access_key = "test-secret",
-        .region = "us-east-1",
         .endpoint = "http://localhost:9000",
     };
 

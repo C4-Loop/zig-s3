@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
-const String = @import("string.zig").String;
 const signer = @import("client/auth/signer.zig");
 const UtcDateTime = @import("client/auth/time.zig").UtcDateTime;
 const S3Config = @import("client/implementation.zig").S3Config;
@@ -10,33 +10,25 @@ const Self = @This();
 
 pub const ConditionMatch = union(enum) {
     /// The form field value must match the value specified.
-    exact: String,
+    exact: []const u8,
     /// The value must start with the specified value.
-    @"starts-with": String,
+    @"starts-with": []const u8,
     /// For form fields that accept an upper and lower limit range (in bytes).
     @"content-length-range": struct { min: u64, max: u64 },
-
-    fn deinit(self: *ConditionMatch, alloc: Allocator) void {
-        switch (self.*) {
-            .exact => |e| e.deinit(alloc),
-            .@"starts-with" => |sw| sw.deinit(alloc),
-            .@"content-length-range" => {},
-        }
-    }
 
     fn jsonWrite(self: *const ConditionMatch, jws: anytype, name: []const u8) !void {
         switch (self.*) {
             .exact => |e| {
                 try jws.beginObject();
                 try jws.objectField(name);
-                try jws.write(e.ref());
+                try jws.write(e);
                 try jws.endObject();
             },
             .@"starts-with" => |sw| {
                 try jws.beginArray();
                 try jws.write("starts-with");
                 try jws.print("${s}", .{name});
-                try jws.write(sw.ref());
+                try jws.write(sw);
                 try jws.endArray();
             },
             .@"content-length-range" => |r| {
@@ -99,7 +91,7 @@ pub const ConditionVariable = union(enum) {
 
     /// User-specified metadata.
     /// This condition supports `exact` matching and `starts-with` condition match type.
-    meta: String,
+    meta: []const u8,
     /// The storage class to use for storing the object.
     /// This condition supports `exact` matching.
     @"x-amz-storage-class",
@@ -110,16 +102,9 @@ pub const ConditionVariable = union(enum) {
     /// This condition supports `exact` matching.
     @"x-amz-checksum-algorithm": ChecksumAlgorithm,
 
-    fn deinit(self: *ConditionVariable, alloc: Allocator) void {
-        switch (self.*) {
-            .meta => |m| m.deinit(alloc),
-            else => {},
-        }
-    }
-
     fn equals(self: ConditionVariable, other: ConditionVariable) bool {
         return switch (self) {
-            .meta => other == .meta and self.meta.eql(other.meta),
+            .meta => other == .meta and std.mem.eql(u8, self.meta, other.meta),
             else => std.meta.eql(self, other),
         };
     }
@@ -135,12 +120,12 @@ pub const ChecksumAlgorithm = enum {
     /// Specifies the base64-encoded, 256-bit SHA-256 digest of the object.
     SHA256,
 
-    fn name(self: ChecksumAlgorithm) String {
+    fn name(self: ChecksumAlgorithm) []const u8 {
         return switch (self) {
-            .CRC32 => .static("x-amz-checksum-crc32"),
-            .CRC32C => .static("x-amz-checksum-crc32c"),
-            .SHA1 => .static("x-amz-checksum-sha1"),
-            .SHA256 => .static("x-amz-checksum-sha256"),
+            .CRC32 => "x-amz-checksum-crc32",
+            .CRC32C => "x-amz-checksum-crc32c",
+            .SHA1 => "x-amz-checksum-sha1",
+            .SHA256 => "x-amz-checksum-sha256",
         };
     }
 };
@@ -149,43 +134,37 @@ pub const Condition = struct {
     variable: ConditionVariable,
     match: ConditionMatch,
 
-    fn deinit(self: *Condition, alloc: Allocator) void {
-        self.variable.deinit(alloc);
-        self.match.deinit(alloc);
-    }
-
     pub fn jsonStringify(self: *const Condition, jws: anytype) !void {
         switch (self.variable) {
-            .meta => |meta| try self.match.jsonWrite(jws, meta.ref()),
+            .meta => |meta| try self.match.jsonWrite(jws, meta),
             .@"x-amz-checksum-algorithm" => |algo| {
-                const algoMatch: ConditionMatch = .{ .exact = .borrow(@tagName(algo)) };
+                const algoMatch: ConditionMatch = .{ .exact = @tagName(algo) };
                 try algoMatch.jsonWrite(jws, "x-amz-checksum-algorithm");
-                try self.match.jsonWrite(jws, algo.name().ref());
+                try self.match.jsonWrite(jws, algo.name());
             },
             else => try self.match.jsonWrite(jws, @tagName(self.variable)),
         }
     }
 
     pub fn formWrite(self: *const Condition, form_data: *FormData) !void {
-        const val: String = switch (self.match) {
-            .exact => |e| try e.dupe(form_data.allocator),
-            .@"starts-with" => |sw| try sw.dupe(form_data.allocator),
+        const val: []const u8 = switch (self.match) {
+            .exact => |e| e,
+            .@"starts-with" => |sw| sw,
             else => return,
         };
-        errdefer val.deinit(form_data.allocator);
 
         switch (self.variable) {
-            .meta => |meta| try form_data.put(try meta.dupe(form_data.allocator), val),
+            .meta => |meta| try form_data.put(meta, val),
             .@"x-amz-checksum-algorithm" => |algo| {
-                try form_data.put(.borrow(@tagName(self.variable)), .borrow(@tagName(algo)));
+                try form_data.put(@tagName(self.variable), @tagName(algo));
                 try form_data.put(algo.name(), val);
             },
-            else => try form_data.put(.borrow(@tagName(self.variable)), val),
+            else => try form_data.put(@tagName(self.variable), val),
         }
     }
 };
 
-const FormData = std.ArrayHashMap(String, String, String.Context, true);
+const FormData = std.StringArrayHashMap([]const u8);
 
 _alloc: Allocator,
 
@@ -213,16 +192,7 @@ pub fn expires_in(alloc: Allocator, seconds: i64) Self {
 }
 
 pub fn deinit(self: *Self) void {
-    for (self.conditions.items) |*cond| {
-        cond.deinit(self._alloc);
-    }
     self.conditions.deinit(self._alloc);
-
-    var it = self.form_data.iterator();
-    while (it.next()) |v| {
-        v.key_ptr.deinit(self._alloc);
-        v.value_ptr.deinit(self._alloc);
-    }
     self.form_data.deinit();
 }
 
@@ -244,32 +214,32 @@ pub fn has(self: *const Self, cv: ConditionVariable) bool {
 }
 
 /// Set bucket name
-pub fn setBucket(self: *Self, bucket: String) !void {
+pub fn setBucket(self: *Self, bucket: []const u8) !void {
     return self.add(.{ .variable = .bucket, .match = .{ .exact = bucket } });
 }
 
 /// Set object name
-pub fn setKey(self: *Self, key: String) !void {
+pub fn setKey(self: *Self, key: []const u8) !void {
     return self.add(.{ .variable = .key, .match = .{ .exact = key } });
 }
 
 /// Set object name prefix
-pub fn setKeyStartsWith(self: *Self, prefix: String) !void {
+pub fn setKeyStartsWith(self: *Self, prefix: []const u8) !void {
     return self.add(.{ .variable = .key, .match = .{ .starts_with = prefix } });
 }
 
 /// Set content type
-pub fn setContentType(self: *Self, key: String) !void {
+pub fn setContentType(self: *Self, key: []const u8) !void {
     return self.add(.{ .variable = .@"Content-Type", .match = .{ .exact = key } });
 }
 
 /// Set content type prefix
-pub fn setContentTypeStartsWith(self: *Self, prefix: String) !void {
+pub fn setContentTypeStartsWith(self: *Self, prefix: []const u8) !void {
     return self.add(.{ .variable = .@"Content-Type", .match = .{ .starts_with = prefix } });
 }
 
 /// Set content disposition
-pub fn setContentDisposition(self: *Self, key: String) !void {
+pub fn setContentDisposition(self: *Self, key: []const u8) !void {
     return self.add(.{ .variable = .@"Content-Disposition", .match = .{ .exact = key } });
 }
 
@@ -288,65 +258,63 @@ pub fn jsonStringify(self: *const Self, jws: anytype) !void {
 }
 
 pub const PresignedPostPolicy = struct {
-    _alloc: Allocator,
+    _arena: ArenaAllocator,
+
     post_url: []const u8,
-    form_data: FormData,
+    form_data: FormData, // NOTE: not owned by the arena
 
     pub fn deinit(self: *PresignedPostPolicy) void {
-        self._alloc.free(self.post_url);
-        var it = self.form_data.iterator();
-        while (it.next()) |v| {
-            v.key_ptr.deinit(self._alloc);
-            v.value_ptr.deinit(self._alloc);
-        }
         self.form_data.deinit();
+        self._arena.deinit();
     }
 };
 
 pub fn presign(self: *Self, config: *const S3Config) !PresignedPostPolicy {
+    var arena: ArenaAllocator = .init(self._alloc);
+    errdefer arena.deinit();
+    const alloc: Allocator = arena.allocator();
+
     const dt = UtcDateTime.now();
-    const date_str = try dt.formatAmzDate(self._alloc);
-    defer self._alloc.free(date_str);
+    const date_str = try dt.formatAmzDate(alloc);
+    defer alloc.free(date_str);
 
     if (!self.has(.@"x-amz-date")) {
-        try self.add(.{ .variable = .@"x-amz-date", .match = .{ .exact = .take(try dt.formatAmz(self._alloc)) } });
+        try self.add(.{ .variable = .@"x-amz-date", .match = .{ .exact = try dt.formatAmz(alloc) } });
     }
     if (!self.has(.@"x-amz-algorithm")) {
-        try self.add(.{ .variable = .@"x-amz-algorithm", .match = .{ .exact = .static("AWS4-HMAC-SHA256") } });
+        try self.add(.{ .variable = .@"x-amz-algorithm", .match = .{ .exact = "AWS4-HMAC-SHA256" } });
     }
     if (!self.has(.@"x-amz-credential")) {
         const cred: []const u8 = try std.fmt.allocPrint(
-            self._alloc,
+            alloc,
             "{s}/{s}/{s}/s3/aws4_request",
             .{ config.access_key_id, date_str, config.region },
         );
-        try self.add(.{ .variable = .@"x-amz-credential", .match = .{ .exact = .take(cred) } });
+        try self.add(.{ .variable = .@"x-amz-credential", .match = .{ .exact = cred } });
     }
 
-    const policy: String = base64: {
-        const policy_json = try std.json.Stringify.valueAlloc(self._alloc, self, .{});
-        defer self._alloc.free(policy_json);
-        var aw: std.io.Writer.Allocating = .init(self._alloc);
+    const policy: []const u8 = base64: {
+        const policy_json = try std.json.Stringify.valueAlloc(alloc, self, .{});
+        defer alloc.free(policy_json);
+        var aw: std.io.Writer.Allocating = .init(alloc);
         defer aw.deinit();
         try std.base64.standard.Encoder.encodeWriter(&aw.writer, policy_json);
-        break :base64 String.take(try aw.toOwnedSlice());
+        break :base64 try aw.toOwnedSlice();
     };
-    errdefer policy.deinit(self._alloc);
 
     // Calculate signature
-    const signature: String = sig: {
+    const signature: []const u8 = sig: {
         const signing_key = try signer.deriveSigningKey(
-            self._alloc,
+            alloc,
             config.secret_access_key,
             date_str,
             config.region,
             "s3",
         );
-        defer self._alloc.free(signing_key);
+        defer alloc.free(signing_key);
 
-        break :sig String.take(try signer.calculateSignature(self._alloc, signing_key, policy.ref()));
+        break :sig try signer.calculateSignature(alloc, signing_key, policy);
     };
-    errdefer signature.deinit(self._alloc);
 
     // Take ownership of the policy form data
     var form_data: FormData = self.form_data;
@@ -354,19 +322,32 @@ pub fn presign(self: *Self, config: *const S3Config) !PresignedPostPolicy {
     errdefer form_data.deinit();
 
     // Add final entries into form data
-    try form_data.put(.static("policy"), policy);
-    try form_data.put(.static("x-amz-signature"), signature);
+    try form_data.put("policy", policy);
+    try form_data.put("x-amz-signature", signature);
 
-    var it = form_data.iterator();
-    while (it.next()) |e| {
-        std.debug.print("{s} -> {s}\n", .{ e.key_ptr.ref(), e.value_ptr.ref() });
+    const endpoint = if (config.endpoint) |ep| ep else try std.fmt.allocPrint(alloc, "https://s3.{s}.amazonaws.com", .{config.region});
+    defer if (config.endpoint == null) alloc.free(endpoint);
+    if (endpoint.len == 0) {
+        return error.EmptyEndpoint;
     }
 
-    // TODO calculate the post url
+    var post_url_writer: std.io.Writer.Allocating = .init(alloc);
+    defer post_url_writer.deinit();
+    try post_url_writer.writer.writeAll(endpoint);
+    if (form_data.get("bucket")) |bucket_name| {
+        if (endpoint[endpoint.len - 1] != '/') {
+            _ = try post_url_writer.writer.write("/");
+        }
+        _ = try post_url_writer.writer.write(bucket_name);
+        if (form_data.get("key")) |object_name| {
+            try post_url_writer.writer.print("/{s}", .{object_name});
+        }
+    }
+    const post_url: []const u8 = try post_url_writer.toOwnedSlice();
 
     return .{
-        ._alloc = self._alloc,
-        .post_url = "",
+        ._arena = arena,
+        .post_url = post_url,
         .form_data = form_data,
     };
 }
