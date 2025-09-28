@@ -88,13 +88,14 @@ pub fn signRequest(allocator: Allocator, credentials: Credentials, params: Signi
         const now = std.time.timestamp();
         break :blk @as(i64, @intCast(now));
     };
+    const dt = time_utils.UtcDateTime.init(timestamp);
 
     // Get the date string in the correct format (YYYYMMDD)
-    const date_str = try time_utils.formatAmzDate(allocator, timestamp);
+    const date_str = try dt.formatAmzDate(allocator);
     defer allocator.free(date_str);
 
     // Get the full datetime string for x-amz-date header
-    const datetime_str = try time_utils.formatAmzDateTime(allocator, timestamp);
+    const datetime_str = try dt.formatAmz(allocator);
     defer allocator.free(datetime_str);
 
     log.debug("Signing request with date: {s}, datetime: {s}", .{ date_str, datetime_str });
@@ -312,7 +313,7 @@ fn createStringToSign(
     try result.appendSlice(allocator, "AWS4-HMAC-SHA256\n");
 
     // Get the full datetime string for the second line
-    const datetime_str = try time_utils.formatAmzDateTime(allocator, timestamp);
+    const datetime_str = try time_utils.UtcDateTime.init(timestamp).formatAmz(allocator);
     defer allocator.free(datetime_str);
     try result.appendSlice(allocator, datetime_str);
     try result.append(allocator, '\n');
@@ -332,7 +333,7 @@ fn createStringToSign(
 }
 
 /// Calculate request signature using derived signing key
-fn calculateSignature(
+pub fn calculateSignature(
     allocator: Allocator,
     signing_key: []const u8,
     string_to_sign: []const u8,
@@ -388,7 +389,7 @@ pub fn hashPayload(allocator: Allocator, payload: []const u8) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{x}", .{hash});
 }
 
-fn deriveSigningKey(
+pub fn deriveSigningKey(
     allocator: Allocator,
     secret_key: []const u8,
     date_str: []const u8,

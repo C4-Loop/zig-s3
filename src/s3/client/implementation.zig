@@ -125,7 +125,7 @@ pub const S3Client = struct {
         const timestamp = @as(i64, @intCast(now));
 
         // Format current time as x-amz-date header
-        const amz_date = try time_utils.formatAmzDateTime(self.allocator, timestamp);
+        const amz_date = try time_utils.UtcDateTime.init(timestamp).formatAmz(self.allocator);
         defer self.allocator.free(amz_date);
         try headers.put("x-amz-date", amz_date);
 
