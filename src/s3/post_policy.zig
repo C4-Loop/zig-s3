@@ -196,7 +196,6 @@ pub fn deinit(self: *Self) void {
 }
 
 /// Add custom condition to the policy.
-/// Takes ownership of the condition.
 pub fn add(self: *Self, cond: Condition) !void {
     try cond.formWrite(self._alloc, &self.form_data);
     try self.conditions.append(self._alloc, cond);
