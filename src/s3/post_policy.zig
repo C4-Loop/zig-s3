@@ -27,7 +27,7 @@ pub const ConditionMatch = union(enum) {
             .@"starts-with" => |sw| {
                 try jws.beginArray();
                 try jws.write("starts-with");
-                try jws.print("${s}", .{name});
+                try jws.print("\"${s}\"", .{name});
                 try jws.write(sw);
                 try jws.endArray();
             },
