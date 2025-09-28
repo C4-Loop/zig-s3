@@ -14,5 +14,3 @@ zig-out/
 *.so
 *.dylib
 *.a
-!archive/
-!archive/**
