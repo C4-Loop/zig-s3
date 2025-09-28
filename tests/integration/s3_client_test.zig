@@ -158,7 +158,7 @@ test "post policy" {
     try policy.setContentLengthRange(1, 8 * 1024 * 1024); // 8MB max
     try policy.add(.{ .variable = .{ .@"x-amz-checksum-algorithm" = .SHA256 }, .match = .{ .exact = "base64 hash" } });
 
-    var presigned = try policy.presign(&config);
+    var presigned = try policy.presign(&config, .{});
     defer presigned.deinit();
 
     const policy_base64 = presigned.form_data.get("policy").?;

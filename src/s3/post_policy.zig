@@ -146,7 +146,7 @@ pub const Condition = struct {
         }
     }
 
-    pub fn formWrite(self: *const Condition, form_data: *FormData) !void {
+    pub fn formWrite(self: *const Condition, alloc: Allocator, form_data: *FormData) !void {
         const val: []const u8 = switch (self.match) {
             .exact => |e| e,
             .@"starts-with" => |sw| sw,
@@ -154,17 +154,17 @@ pub const Condition = struct {
         };
 
         switch (self.variable) {
-            .meta => |meta| try form_data.put(meta, val),
+            .meta => |meta| try form_data.put(alloc, meta, val),
             .@"x-amz-checksum-algorithm" => |algo| {
-                try form_data.put(@tagName(self.variable), @tagName(algo));
-                try form_data.put(algo.name(), val);
+                try form_data.put(alloc, @tagName(self.variable), @tagName(algo));
+                try form_data.put(alloc, algo.name(), val);
             },
-            else => try form_data.put(@tagName(self.variable), val),
+            else => try form_data.put(alloc, @tagName(self.variable), val),
         }
     }
 };
 
-const FormData = std.StringArrayHashMap([]const u8);
+const FormData = std.StringArrayHashMapUnmanaged([]const u8);
 
 _alloc: Allocator,
 
@@ -174,15 +174,14 @@ expiration: i64,
 /// List of conditions in the policy
 conditions: std.ArrayList(Condition) = .empty,
 
-/// TODO
-form_data: FormData,
+/// POST form data
+form_data: FormData = .empty,
 
 /// Create a new POST Policy that expires at the Unix timestamp (in seconds).
 pub fn expires_at(alloc: Allocator, unix_timestamp_secs: i64) Self {
     return .{
         ._alloc = alloc,
         .expiration = unix_timestamp_secs,
-        .form_data = .init(alloc),
     };
 }
 
@@ -193,13 +192,13 @@ pub fn expires_in(alloc: Allocator, seconds: u64) Self {
 
 pub fn deinit(self: *Self) void {
     self.conditions.deinit(self._alloc);
-    self.form_data.deinit();
+    self.form_data.deinit(self._alloc);
 }
 
 /// Add custom condition to the policy.
 /// Takes ownership of the condition.
 pub fn add(self: *Self, cond: Condition) !void {
-    try cond.formWrite(&self.form_data);
+    try cond.formWrite(self._alloc, &self.form_data);
     try self.conditions.append(self._alloc, cond);
 }
 
@@ -257,19 +256,24 @@ pub fn jsonStringify(self: *const Self, jws: anytype) !void {
     try jws.endObject();
 }
 
+pub const PresignOptions = struct {
+    /// Whether to dupe all of the form data to extend its lifetime.
+    dupe: bool = false,
+};
+
 pub const Presigned = struct {
     _arena: ArenaAllocator,
 
     post_url: []const u8,
-    form_data: FormData, // NOTE: not owned by the arena
+    form_data: FormData,
 
     pub fn deinit(self: *Presigned) void {
-        self.form_data.deinit();
         self._arena.deinit();
     }
 };
 
-pub fn presign(self: *Self, config: *const S3Config) !Presigned {
+/// Presigns the POST Policy
+pub fn presign(self: *Self, config: *const S3Config, opts: PresignOptions) !Presigned {
     var arena: ArenaAllocator = .init(self._alloc);
     errdefer arena.deinit();
     const alloc: Allocator = arena.allocator();
@@ -316,14 +320,22 @@ pub fn presign(self: *Self, config: *const S3Config) !Presigned {
         break :sig try signer.calculateSignature(alloc, signing_key, policy);
     };
 
-    // Take ownership of the policy form data
-    var form_data: FormData = self.form_data;
-    self.form_data = .init(self._alloc);
-    errdefer form_data.deinit();
+    // Copy the policy's form data
+    var form_data: FormData = try .clone(self.form_data, alloc);
+    errdefer form_data.deinit(alloc);
+
+    if (opts.dupe) {
+        // Clone all of the key-value pairs in the form data
+        var it = form_data.iterator();
+        while (it.next()) |e| {
+            e.key_ptr.* = try alloc.dupe(u8, e.key_ptr.*);
+            e.value_ptr.* = try alloc.dupe(u8, e.value_ptr.*);
+        }
+    }
 
     // Add final entries into form data
-    try form_data.put("policy", policy);
-    try form_data.put("x-amz-signature", signature);
+    try form_data.put(alloc, "policy", policy);
+    try form_data.put(alloc, "x-amz-signature", signature);
 
     const endpoint = if (config.endpoint) |ep| ep else try std.fmt.allocPrint(alloc, "https://s3.{s}.amazonaws.com", .{config.region});
     defer if (config.endpoint == null) alloc.free(endpoint);
