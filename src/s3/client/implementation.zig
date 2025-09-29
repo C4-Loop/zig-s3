@@ -187,9 +187,13 @@ test "S3Client request signing" {
     var client = try S3Client.init(allocator, config);
     defer client.deinit();
 
+    var response_writer = std.Io.Writer.Allocating.init(allocator);
+    defer response_writer.deinit();
+
     const uri = try Uri.parse("https://examplebucket.s3.amazonaws.com/test.txt");
-    var res = try client.request(.GET, uri, null);
-    defer res.deinit();
+    var res = try client.request(.GET, uri, null, &response_writer.writer);
+
+    // TODO how to get headers?
 
     // Verify authorization header is present
     try std.testing.expect(res.headers.contains("authorization"));
@@ -243,8 +247,9 @@ test "S3Client request with body" {
 
     const uri = try Uri.parse("https://example.s3.amazonaws.com/test.txt");
     const body = "Hello, S3!";
-    var res = try client.request(.PUT, uri, body);
-    defer res.deinit();
+    var res = try client.request(.PUT, uri, body, null);
+
+    // TODO headers?
 
     try std.testing.expect(res.headers.contains("authorization"));
     try std.testing.expect(res.headers.contains("x-amz-content-sha256"));
@@ -264,11 +269,10 @@ test "S3Client error handling" {
     defer client.deinit();
 
     const uri = try Uri.parse("https://example.s3.amazonaws.com/test.txt");
-    var res = try client.request(.GET, uri, null);
-    defer res.deinit();
+    const res = try client.request(.GET, uri, null, null);
 
     // Test error mapping
-    switch (res.response.status) {
+    switch (res.status) {
         .unauthorized => try std.testing.expectError(S3Error.InvalidCredentials, S3Error.InvalidCredentials),
         .forbidden => try std.testing.expectError(S3Error.InvalidCredentials, S3Error.InvalidCredentials),
         .not_found => try std.testing.expectError(S3Error.BucketNotFound, S3Error.BucketNotFound),

@@ -188,6 +188,149 @@ pub fn listBuckets(self: *S3Client) ![]BucketInfo {
     return buckets.toOwnedSlice(self.allocator);
 }
 
+/// Object information returned by listObjects
+pub const ObjectInfo = struct {
+    /// Key (path) of the object
+    key: []const u8,
+    /// Size of the object in bytes
+    size: u64,
+    /// Last modified timestamp as ISO-8601 string
+    last_modified: []const u8,
+    /// ETag of the object (usually MD5 of content)
+    etag: []const u8,
+
+    pub fn deinit(self: *ObjectInfo, alloc: Allocator) void {
+        alloc.free(self.key);
+        alloc.free(self.last_modified);
+        alloc.free(self.etag);
+    }
+};
+
+/// Options for listing objects
+pub const ListObjectsOptions = struct {
+    /// Filter objects by prefix
+    prefix: ?[]const u8 = null,
+    /// Maximum number of objects to return (1-1000)
+    max_keys: ?u32 = null,
+    /// Start listing from this key (for pagination)
+    start_after: ?[]const u8 = null,
+};
+
+/// List objects in a bucket.
+///
+/// This implements the S3 ListObjectsV2 API.
+/// Results are sorted by key in lexicographical order.
+///
+/// Parameters:
+///   - self: Pointer to initialized S3Client
+///   - bucket_name: Name of the bucket to list
+///   - options: Optional listing parameters (prefix, pagination)
+///
+/// Returns: Slice of ObjectInfo structs. Caller owns the memory.
+///
+/// Errors:
+///   - BucketNotFound: If the bucket doesn't exist
+///   - InvalidResponse: If listing fails or response is malformed
+///   - ConnectionFailed: Network or connection issues
+///   - OutOfMemory: Memory allocation failure
+pub fn listObjects(
+    self: *S3Client,
+    bucket_name: []const u8,
+    options: ListObjectsOptions,
+) ![]ObjectInfo {
+    const endpoint = if (self.config.endpoint) |ep| ep else try fmt.allocPrint(self.allocator, "https://s3.{s}.amazonaws.com", .{self.config.region});
+    defer if (self.config.endpoint == null) self.allocator.free(endpoint);
+
+    // Build query string
+    var query: std.ArrayList(u8) = .empty;
+    defer query.deinit(self.allocator);
+
+    try query.appendSlice(self.allocator, "list-type=2"); // Use ListObjectsV2
+
+    if (options.prefix) |prefix| {
+        try query.appendSlice(self.allocator, "&prefix=");
+        try query.appendSlice(self.allocator, prefix);
+    }
+
+    if (options.max_keys) |max_keys| {
+        try query.appendSlice(self.allocator, "&max-keys=");
+        try query.print(self.allocator, "{d}", .{max_keys});
+    }
+
+    if (options.start_after) |start_after| {
+        try query.appendSlice(self.allocator, "&start-after=");
+        try query.appendSlice(self.allocator, start_after);
+    }
+
+    const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}?{s}", .{
+        endpoint,
+        bucket_name,
+        query.items,
+    });
+    defer self.allocator.free(uri_str);
+
+    var response_writer = std.Io.Writer.Allocating.init(self.allocator);
+    defer response_writer.deinit();
+
+    const res = try self.request(.GET, try Uri.parse(uri_str), null, &response_writer.writer);
+    if (res.status == .not_found) {
+        return S3Error.BucketNotFound;
+    }
+    if (res.status != .ok) {
+        return S3Error.InvalidResponse;
+    }
+
+    // Read response body
+    const body = response_writer.written();
+
+    // Parse XML response
+    var objects: std.ArrayList(ObjectInfo) = .empty;
+    errdefer {
+        for (objects.items) |*object| {
+            object.deinit(self.allocator);
+        }
+        objects.deinit(self.allocator);
+    }
+
+    // Simple XML parsing - look for <Contents> elements
+    var it = std.mem.splitSequence(u8, body, "<Contents>");
+    _ = it.first(); // Skip first part before any <Contents>
+
+    while (it.next()) |object_xml| {
+        // Extract key
+        const key_start = std.mem.indexOf(u8, object_xml, "<Key>") orelse continue;
+        const key_end = std.mem.indexOf(u8, object_xml, "</Key>") orelse continue;
+        const key = try self.allocator.dupe(u8, object_xml[key_start + 5 .. key_end]);
+        errdefer self.allocator.free(key);
+
+        // Extract size
+        const size_start = std.mem.indexOf(u8, object_xml, "<Size>") orelse continue;
+        const size_end = std.mem.indexOf(u8, object_xml, "</Size>") orelse continue;
+        const size = try std.fmt.parseInt(u64, object_xml[size_start + 6 .. size_end], 10);
+
+        // Extract last modified
+        const lm_start = std.mem.indexOf(u8, object_xml, "<LastModified>") orelse continue;
+        const lm_end = std.mem.indexOf(u8, object_xml, "</LastModified>") orelse continue;
+        const last_modified = try self.allocator.dupe(u8, object_xml[lm_start + 13 .. lm_end]);
+        errdefer self.allocator.free(last_modified);
+
+        // Extract ETag
+        const etag_start = std.mem.indexOf(u8, object_xml, "<ETag>") orelse continue;
+        const etag_end = std.mem.indexOf(u8, object_xml, "</ETag>") orelse continue;
+        const etag = try self.allocator.dupe(u8, object_xml[etag_start + 6 .. etag_end]);
+        errdefer self.allocator.free(etag);
+
+        try objects.append(self.allocator, .{
+            .key = key,
+            .size = size,
+            .last_modified = last_modified,
+            .etag = etag,
+        });
+    }
+
+    return objects.toOwnedSlice(self.allocator);
+}
+
 test "bucket operations" {
     const allocator = std.testing.allocator;
 

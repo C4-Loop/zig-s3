@@ -51,7 +51,8 @@ const fmt = std.fmt;
 const mem = std.mem;
 const time = std.time;
 const log = std.log;
-const time_utils = @import("time.zig");
+
+const UtcDateTime = @import("time.zig").UtcDateTime;
 
 /// AWS region for signing
 const Region = []const u8;
@@ -88,7 +89,7 @@ pub fn signRequest(allocator: Allocator, credentials: Credentials, params: Signi
         const now = std.time.timestamp();
         break :blk @as(i64, @intCast(now));
     };
-    const dt = time_utils.UtcDateTime.init(timestamp);
+    const dt = UtcDateTime.init(timestamp);
 
     // Get the date string in the correct format (YYYYMMDD)
     const date_str = try dt.formatAmzDate(allocator);
@@ -260,7 +261,8 @@ fn createCanonicalRequest(allocator: Allocator, params: SigningParams) ![]const 
 
 /// Get credential scope string
 fn getCredentialScope(allocator: Allocator, credentials: Credentials, timestamp: i64) ![]const u8 {
-    const date = try time_utils.formatDate(allocator, timestamp);
+    const dt = UtcDateTime.init(timestamp);
+    const date = try dt.formatAmzDate(allocator);
     defer allocator.free(date);
 
     return fmt.allocPrint(
@@ -313,7 +315,7 @@ fn createStringToSign(
     try result.appendSlice(allocator, "AWS4-HMAC-SHA256\n");
 
     // Get the full datetime string for the second line
-    const datetime_str = try time_utils.UtcDateTime.init(timestamp).formatAmz(allocator);
+    const datetime_str = try UtcDateTime.init(timestamp).formatAmz(allocator);
     defer allocator.free(datetime_str);
     try result.appendSlice(allocator, datetime_str);
     try result.append(allocator, '\n');
@@ -353,7 +355,8 @@ fn createAuthorizationHeader(
     signature: []const u8,
     timestamp: i64,
 ) ![]const u8 {
-    const date = try time_utils.formatAmzDate(allocator, timestamp);
+    const dt = UtcDateTime.init(timestamp);
+    const date = try dt.formatAmzDate(allocator);
     defer allocator.free(date);
 
     return fmt.allocPrint(
@@ -460,7 +463,7 @@ test "AWS Signature V4" {
 
 test "hashPayload empty" {
     const allocator = std.testing.allocator;
-    const hash = try hashPayload(allocator, null);
+    const hash = try hashPayload(allocator, "");
     defer allocator.free(hash);
     // SHA256 of empty string
     try std.testing.expectEqualStrings(
@@ -513,8 +516,11 @@ test "deriveSigningKey" {
     };
 
     const timestamp = 1704067200; // 2024-01-01 00:00:00 UTC
+    const dt = UtcDateTime.init(timestamp);
+    const date_str = try dt.formatAmzDate(allocator);
+    defer allocator.free(date_str);
 
-    const key = try deriveSigningKey(allocator, credentials.secret_key, timestamp, credentials.region, credentials.service);
+    const key = try deriveSigningKey(allocator, credentials.secret_key, date_str, credentials.region, credentials.service);
     defer allocator.free(key);
 
     try std.testing.expect(key.len > 0);

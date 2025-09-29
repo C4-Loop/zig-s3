@@ -13,6 +13,13 @@ const bucket_ops = @import("../bucket/operations.zig");
 const S3Error = lib.S3Error;
 const S3Client = client_impl.S3Client;
 
+fn object_url(client: *const S3Client, bucket_name: []const u8, key: []const u8) ![]const u8 {
+    const endpoint = if (client.config.endpoint) |ep| ep else try fmt.allocPrint(client.allocator, "https://s3.{s}.amazonaws.com", .{client.config.region});
+    defer if (client.config.endpoint == null) client.allocator.free(endpoint);
+
+    return try fmt.allocPrint(client.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
+}
+
 /// Upload an object to S3.
 ///
 /// Currently supports objects up to the size of available memory.
@@ -30,18 +37,67 @@ const S3Client = client_impl.S3Client;
 ///   - ConnectionFailed: Network or connection issues
 ///   - OutOfMemory: Memory allocation failure
 pub fn putObject(self: *S3Client, bucket_name: []const u8, key: []const u8, data: []const u8) !void {
-    const endpoint = if (self.config.endpoint) |ep| ep else try fmt.allocPrint(self.allocator, "https://s3.{s}.amazonaws.com", .{self.config.region});
-    defer if (self.config.endpoint == null) self.allocator.free(endpoint);
-
-    const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
+    const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
-    var res = try self.request(.PUT, try Uri.parse(uri_str), data);
-    defer res.deinit();
-
-    if (res.response.status != .ok) {
+    const res = try self.request(.PUT, try Uri.parse(uri_str), data, null);
+    if (res.status != .ok) {
         return S3Error.InvalidResponse;
     }
+}
+
+/// Object metadata returned by headObject
+pub const ObjectMetadata = struct {
+    /// Size of the object (in bytes)
+    size: u64,
+    /// Last modified timestamp as ISO-8601 string
+    last_modified: []const u8,
+    /// ETag of the object (usually MD5 of content)
+    etag: []const u8,
+    /// The MIME type of the object's content.
+    content_type: []const u8,
+
+    pub fn deinit(self: *ObjectMetadata, alloc: Allocator) void {
+        alloc.free(self.last_modified);
+        alloc.free(self.etag);
+        alloc.free(self.content_type);
+    }
+};
+
+/// Retrieves metadata for an object from S3.
+///
+/// Parameters:
+///   - self: Pointer to initialized S3Client
+///   - bucket_name: Name of the bucket containing the object
+///   - key: Object key (path) in the bucket
+///
+/// Returns: Whether the object exists on S3.
+///
+/// Errors:
+///   - BucketNotFound: If the bucket doesn't exist
+///   - InvalidResponse: If request fails
+///   - ConnectionFailed: Network or connection issues
+///   - OutOfMemory: Memory allocation failure
+pub fn headObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !?ObjectMetadata {
+    const uri_str = try object_url(self, bucket_name, key);
+    defer self.allocator.free(uri_str);
+
+    const res = try self.request(.HEAD, try Uri.parse(uri_str), null, null);
+    if (res.status == .not_found) {
+        return null;
+    }
+    if (res.status != .ok) {
+        return S3Error.InvalidResponse;
+    }
+
+    // TODO read headers into metadata object
+
+    return .{
+        .size = 0,
+        .last_modified = "",
+        .etag = "",
+        .content_type = "",
+    };
 }
 
 /// Download an object from S3.
@@ -63,24 +119,21 @@ pub fn putObject(self: *S3Client, bucket_name: []const u8, key: []const u8, data
 ///   - ConnectionFailed: Network or connection issues
 ///   - OutOfMemory: Memory allocation failure
 pub fn getObject(self: *S3Client, bucket_name: []const u8, key: []const u8) ![]const u8 {
-    const endpoint = if (self.config.endpoint) |ep| ep else try fmt.allocPrint(self.allocator, "https://s3.{s}.amazonaws.com", .{self.config.region});
-    defer if (self.config.endpoint == null) self.allocator.free(endpoint);
-
-    const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
+    const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
-    var res = try self.request(.GET, try Uri.parse(uri_str), null);
-    defer res.deinit();
+    var response_writer = std.Io.Writer.Allocating.init(self.allocator);
+    defer response_writer.deinit();
 
-    if (res.response.status == .not_found) {
+    const res = try self.request(.GET, try Uri.parse(uri_str), null, &response_writer.writer);
+    if (res.status == .not_found) {
         return S3Error.ObjectNotFound;
     }
-    if (res.response.status != .ok) {
+    if (res.status != .ok) {
         return S3Error.InvalidResponse;
     }
 
-    // TODO: Support streaming for large objects
-    return try res.reader().readAllAlloc(self.allocator, 1024 * 1024); // 1MB max
+    return response_writer.toOwnedSlice();
 }
 
 /// Delete an object from S3.
@@ -98,155 +151,13 @@ pub fn getObject(self: *S3Client, bucket_name: []const u8, key: []const u8) ![]c
 ///   - ConnectionFailed: Network or connection issues
 ///   - OutOfMemory: Memory allocation failure
 pub fn deleteObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !void {
-    const endpoint = if (self.config.endpoint) |ep| ep else try fmt.allocPrint(self.allocator, "https://s3.{s}.amazonaws.com", .{self.config.region});
-    defer if (self.config.endpoint == null) self.allocator.free(endpoint);
-
-    const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}/{s}", .{ endpoint, bucket_name, key });
+    const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
-    var res = try self.request(.DELETE, try Uri.parse(uri_str), null);
-    defer res.deinit();
-
-    if (res.response.status != .no_content) {
+    const res = try self.request(.DELETE, try Uri.parse(uri_str), null, null);
+    if (res.status != .no_content) {
         return S3Error.InvalidResponse;
     }
-}
-
-/// Object information returned by listObjects
-pub const ObjectInfo = struct {
-    /// Key (path) of the object
-    key: []const u8,
-    /// Size of the object in bytes
-    size: u64,
-    /// Last modified timestamp as ISO-8601 string
-    last_modified: []const u8,
-    /// ETag of the object (usually MD5 of content)
-    etag: []const u8,
-};
-
-/// Options for listing objects
-pub const ListObjectsOptions = struct {
-    /// Filter objects by prefix
-    prefix: ?[]const u8 = null,
-    /// Maximum number of objects to return (1-1000)
-    max_keys: ?u32 = null,
-    /// Start listing from this key (for pagination)
-    start_after: ?[]const u8 = null,
-};
-
-/// List objects in a bucket.
-///
-/// This implements the S3 ListObjectsV2 API.
-/// Results are sorted by key in lexicographical order.
-///
-/// Parameters:
-///   - self: Pointer to initialized S3Client
-///   - bucket_name: Name of the bucket to list
-///   - options: Optional listing parameters (prefix, pagination)
-///
-/// Returns: Slice of ObjectInfo structs. Caller owns the memory.
-///
-/// Errors:
-///   - BucketNotFound: If the bucket doesn't exist
-///   - InvalidResponse: If listing fails or response is malformed
-///   - ConnectionFailed: Network or connection issues
-///   - OutOfMemory: Memory allocation failure
-pub fn listObjects(
-    self: *S3Client,
-    bucket_name: []const u8,
-    options: ListObjectsOptions,
-) ![]ObjectInfo {
-    const endpoint = if (self.config.endpoint) |ep| ep else try fmt.allocPrint(self.allocator, "https://s3.{s}.amazonaws.com", .{self.config.region});
-    defer if (self.config.endpoint == null) self.allocator.free(endpoint);
-
-    // Build query string
-    var query = std.ArrayList(u8).init(self.allocator);
-    defer query.deinit();
-
-    try query.appendSlice("list-type=2"); // Use ListObjectsV2
-
-    if (options.prefix) |prefix| {
-        try query.appendSlice("&prefix=");
-        try query.appendSlice(prefix);
-    }
-
-    if (options.max_keys) |max_keys| {
-        try query.appendSlice("&max-keys=");
-        try query.writer().print("{d}", .{max_keys});
-    }
-
-    if (options.start_after) |start_after| {
-        try query.appendSlice("&start-after=");
-        try query.appendSlice(start_after);
-    }
-
-    const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}?{s}", .{
-        endpoint,
-        bucket_name,
-        query.items,
-    });
-    defer self.allocator.free(uri_str);
-
-    var res = try self.request(.GET, try Uri.parse(uri_str), null);
-    defer res.deinit();
-
-    if (res.response.status == .not_found) {
-        return S3Error.BucketNotFound;
-    }
-    if (res.response.status != .ok) {
-        return S3Error.InvalidResponse;
-    }
-
-    // Read response body
-    const max_size = 1024 * 1024; // 1MB max response size
-    const body = try res.reader().readAllAlloc(self.allocator, max_size);
-    defer self.allocator.free(body);
-
-    // Parse XML response
-    var objects = std.ArrayList(ObjectInfo).init(self.allocator);
-    errdefer {
-        for (objects.items) |object| {
-            self.allocator.free(object.key);
-            self.allocator.free(object.last_modified);
-            self.allocator.free(object.etag);
-        }
-        objects.deinit();
-    }
-
-    // Simple XML parsing - look for <Contents> elements
-    var it = std.mem.splitSequence(u8, body, "<Contents>");
-    _ = it.first(); // Skip first part before any <Contents>
-
-    while (it.next()) |object_xml| {
-        // Extract key
-        const key_start = std.mem.indexOf(u8, object_xml, "<Key>") orelse continue;
-        const key_end = std.mem.indexOf(u8, object_xml, "</Key>") orelse continue;
-        const key = try self.allocator.dupe(u8, object_xml[key_start + 5 .. key_end]);
-
-        // Extract size
-        const size_start = std.mem.indexOf(u8, object_xml, "<Size>") orelse continue;
-        const size_end = std.mem.indexOf(u8, object_xml, "</Size>") orelse continue;
-        const size = try std.fmt.parseInt(u64, object_xml[size_start + 6 .. size_end], 10);
-
-        // Extract last modified
-        const lm_start = std.mem.indexOf(u8, object_xml, "<LastModified>") orelse continue;
-        const lm_end = std.mem.indexOf(u8, object_xml, "</LastModified>") orelse continue;
-        const last_modified = try self.allocator.dupe(u8, object_xml[lm_start + 13 .. lm_end]);
-
-        // Extract ETag
-        const etag_start = std.mem.indexOf(u8, object_xml, "<ETag>") orelse continue;
-        const etag_end = std.mem.indexOf(u8, object_xml, "</ETag>") orelse continue;
-        const etag = try self.allocator.dupe(u8, object_xml[etag_start + 6 .. etag_end]);
-
-        try objects.append(.{
-            .key = key,
-            .size = size,
-            .last_modified = last_modified,
-            .etag = etag,
-        });
-    }
-
-    return objects.toOwnedSlice();
 }
 
 pub const ObjectUploader = struct {
@@ -306,15 +217,14 @@ pub const ObjectUploader = struct {
         key: []const u8,
         data: anytype,
     ) !void {
-        // Create a buffer for JSON string
-        var buffer = std.ArrayList(u8).init(self.client.allocator);
-        defer buffer.deinit();
+        var writer = std.io.Writer.Allocating.init(self.client.allocator);
+        defer writer.deinit();
 
         // Serialize to JSON
-        try std.json.stringify(data, .{}, buffer.writer());
+        try std.json.Stringify.value(data, .{}, &writer.writer);
 
         // Upload the JSON data
-        try putObject(self.client, bucket_name, key, buffer.items);
+        try putObject(self.client, bucket_name, key, writer.written());
     }
 };
 
@@ -329,7 +239,7 @@ test "upload different types" {
     var test_client = try S3Client.init(allocator, config);
     defer test_client.deinit();
 
-    var uploader = ObjectUploader.init(&test_client);
+    var uploader = ObjectUploader.init(test_client);
 
     // File upload
     try uploader.uploadFile(
@@ -390,7 +300,7 @@ test "list objects basic" {
     }
 
     // List all objects
-    const objects = try listObjects(test_client, bucket_name, .{});
+    const objects = try bucket_ops.listObjects(test_client, bucket_name, .{});
     defer {
         for (objects) |object| {
             allocator.free(object.key);
@@ -449,7 +359,7 @@ test "list objects with prefix" {
     }
 
     // List objects with prefix
-    const objects = try listObjects(test_client, bucket_name, .{
+    const objects = try bucket_ops.listObjects(test_client, bucket_name, .{
         .prefix = "folder1/",
     });
     defer {
@@ -504,7 +414,7 @@ test "list objects pagination" {
     }
 
     // List first page (2 objects)
-    const page1 = try listObjects(test_client, bucket_name, .{
+    const page1 = try bucket_ops.listObjects(test_client, bucket_name, .{
         .max_keys = 2,
     });
     defer {
@@ -519,7 +429,7 @@ test "list objects pagination" {
     try std.testing.expectEqual(@as(usize, 2), page1.len);
 
     // List second page using start_after
-    const page2 = try listObjects(test_client, bucket_name, .{
+    const page2 = try bucket_ops.listObjects(test_client, bucket_name, .{
         .max_keys = 2,
         .start_after = page1[1].key,
     });
@@ -551,13 +461,13 @@ test "list objects error cases" {
     // Test non-existent bucket
     try std.testing.expectError(
         error.BucketNotFound,
-        listObjects(test_client, "nonexistent-bucket", .{}),
+        bucket_ops.listObjects(test_client, "nonexistent-bucket", .{}),
     );
 
     // Test invalid max_keys
     try std.testing.expectError(
         error.InvalidResponse,
-        listObjects(test_client, "test-bucket", .{
+        bucket_ops.listObjects(test_client, "test-bucket", .{
             .max_keys = 1001, // Max allowed is 1000
         }),
     );
@@ -578,6 +488,13 @@ test "object operations" {
     // Test basic object lifecycle
     const test_data = "Hello, S3!";
     try putObject(test_client, "test-bucket", "test-key", test_data);
+
+    var metadata = try headObject(test_client, "test-bucket", "test-key");
+    if (metadata) |*m| {
+        defer m.deinit(allocator);
+    } else {
+        try std.testing.expect(false);
+    }
 
     const retrieved = try getObject(test_client, "test-bucket", "test-key");
     defer allocator.free(retrieved);
@@ -730,7 +647,7 @@ test "list objects empty bucket" {
     defer _ = bucket_ops.deleteBucket(test_client, bucket_name) catch {};
 
     // List objects in empty bucket
-    const objects = try listObjects(test_client, bucket_name, .{});
+    const objects = try bucket_ops.listObjects(test_client, bucket_name, .{});
     defer allocator.free(objects);
 
     try std.testing.expectEqual(@as(usize, 0), objects.len);
@@ -785,7 +702,7 @@ test "list objects with multiple prefixes" {
     };
 
     for (test_cases) |case| {
-        const objects = try listObjects(test_client, bucket_name, .{
+        const objects = try bucket_ops.listObjects(test_client, bucket_name, .{
             .prefix = case.prefix,
         });
         defer {
@@ -845,17 +762,17 @@ test "list objects pagination with various sizes" {
     // Test different page sizes
     const page_sizes = [_]u32{ 5, 10, 15 };
     for (page_sizes) |page_size| {
-        var collected_objects = std.ArrayList([]const u8).init(allocator);
+        var collected_objects: std.ArrayList([]const u8) = .empty;
         defer {
             for (collected_objects.items) |key| {
                 allocator.free(key);
             }
-            collected_objects.deinit();
+            collected_objects.deinit(allocator);
         }
 
         var last_key: ?[]const u8 = null;
         while (true) {
-            const page = try listObjects(test_client, bucket_name, .{
+            const page = try bucket_ops.listObjects(test_client, bucket_name, .{
                 .max_keys = page_size,
                 .start_after = last_key,
             });
@@ -873,7 +790,7 @@ test "list objects pagination with various sizes" {
 
             for (page) |object| {
                 if (last_key == null or !std.mem.eql(u8, object.key, last_key.?)) {
-                    try collected_objects.append(try allocator.dupe(u8, object.key));
+                    try collected_objects.append(allocator, try allocator.dupe(u8, object.key));
                 }
             }
 
@@ -938,7 +855,7 @@ test "list objects with special characters in prefix" {
     // Test listing with various special character prefixes
     for (test_objects) |obj| {
         const prefix = obj.key[0 .. std.mem.indexOf(u8, obj.key, "/").? + 1];
-        const objects = try listObjects(test_client, bucket_name, .{
+        const objects = try bucket_ops.listObjects(test_client, bucket_name, .{
             .prefix = prefix,
         });
         defer {
@@ -1037,7 +954,7 @@ test "ObjectUploader file operations" {
     const test_filename = "test-upload.txt";
 
     // Create temporary directory for test files
-    try std.fs.cwd().makeDir("tmp") catch |err| switch (err) {
+    std.fs.cwd().makeDir("tmp") catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
