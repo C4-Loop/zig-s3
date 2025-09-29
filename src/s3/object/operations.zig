@@ -71,20 +71,21 @@ pub const ObjectMetadata = struct {
 ///   - bucket_name: Name of the bucket containing the object
 ///   - key: Object key (path) in the bucket
 ///
-/// Returns: Whether the object exists on S3.
+/// Returns: Object metadata.
 ///
 /// Errors:
+///   - ObjectNotFound: If the object doesn't exist
 ///   - BucketNotFound: If the bucket doesn't exist
 ///   - InvalidResponse: If request fails
 ///   - ConnectionFailed: Network or connection issues
 ///   - OutOfMemory: Memory allocation failure
-pub fn headObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !?ObjectMetadata {
+pub fn headObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !ObjectMetadata {
     const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
     const res = try self.request(.HEAD, try Uri.parse(uri_str), null, null);
     if (res.status == .not_found) {
-        return null;
+        return S3Error.ObjectNotFound;
     }
     if (res.status != .ok) {
         return S3Error.InvalidResponse;

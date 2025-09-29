@@ -67,6 +67,9 @@ pub const ObjectInfo = bucket_ops.ObjectInfo;
 /// Options for listing objects in a bucket
 pub const ListObjectsOptions = bucket_ops.ListObjectsOptions;
 
+/// Metadata about an object in S3
+pub const ObjectMetadata = object_ops.ObjectMetadata;
+
 /// Helper struct for uploading different types of content to S3
 pub const ObjectUploader = object_ops.ObjectUploader;
 
@@ -147,6 +150,12 @@ pub const S3Client = struct {
     /// See object/operations.zig for details.
     pub fn putObject(self: *S3Client, bucket_name: []const u8, key: []const u8, data: []const u8) !void {
         return object_ops.putObject(self.inner, bucket_name, key, data);
+    }
+
+    /// Retrieves metadata for an object from S3.
+    /// See object/operations.zig for details.
+    pub fn headObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !ObjectMetadata {
+        return object_ops.headObject(self.inner, bucket_name, key);
     }
 
     /// Download an object from S3.
