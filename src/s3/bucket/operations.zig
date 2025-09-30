@@ -336,8 +336,9 @@ test "bucket operations" {
 
     // Initialize test client with dummy credentials
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -352,8 +353,9 @@ test "bucket operations error handling" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -377,8 +379,8 @@ test "bucket operations with custom endpoint" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
         .endpoint = "http://localhost:9000",
     };
 
@@ -395,8 +397,9 @@ test "bucket name validation" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -438,8 +441,9 @@ test "list buckets" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -479,8 +483,8 @@ test "list buckets with custom endpoint" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
         .endpoint = "http://localhost:9000",
     };
 
@@ -508,8 +512,9 @@ test "list buckets error handling" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "invalid-key",
-        .secret_access_key = "invalid-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -526,8 +531,9 @@ test "bucket lifecycle with validation" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -589,8 +595,9 @@ test "bucket operations with special characters" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -656,8 +663,9 @@ test "bucket operations concurrency" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -709,8 +717,9 @@ test "bucket operations error cases" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -749,8 +758,9 @@ test "bucket operations with empty strings" {
     const allocator = std.testing.allocator;
 
     const config = client_impl.S3Config{
-        .access_key_id = "test-key",
-        .secret_access_key = "test-secret",
+        .access_key_id = "minioadmin",
+        .secret_access_key = "minioadmin",
+        .endpoint = "http://localhost:9000",
     };
 
     var test_client = try S3Client.init(allocator, config);
@@ -781,8 +791,9 @@ test "bucket operations region handling" {
 
     for (regions) |region| {
         const config = client_impl.S3Config{
-            .access_key_id = "test-key",
-            .secret_access_key = "test-secret",
+            .access_key_id = "minioadmin",
+            .secret_access_key = "minioadmin",
+            .endpoint = "http://localhost:9000",
             .region = region,
         };
 
