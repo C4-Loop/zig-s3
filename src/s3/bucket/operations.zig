@@ -36,7 +36,7 @@ pub fn createBucket(self: *S3Client, bucket_name: []const u8) !void {
     defer self.allocator.free(uri_str);
     std.debug.print("Constructed URI: {s}\n", .{uri_str});
 
-    const res = try self.request(.PUT, try Uri.parse(uri_str), "", null);
+    const res = try self.request(.PUT, try Uri.parse(uri_str), .{ .body = "" });
     std.debug.print("Sent PUT request to create bucket\n", .{});
 
     if (res.status != .ok and res.status != .created) {
@@ -88,7 +88,7 @@ pub fn deleteBucket(self: *S3Client, bucket_name: []const u8) !void {
     const uri_str = try fmt.allocPrint(self.allocator, "{s}/{s}", .{ endpoint, bucket_name });
     defer self.allocator.free(uri_str);
 
-    const res = try self.request(.DELETE, try Uri.parse(uri_str), null, null);
+    const res = try self.request(.DELETE, try Uri.parse(uri_str), .{});
     if (res.status != .no_content) {
         return S3Error.InvalidResponse;
     }
@@ -130,7 +130,7 @@ pub fn listBuckets(self: *S3Client) ![]BucketInfo {
     defer response_writer.deinit();
 
     log.debug("Requesting list of buckets from endpoint: {s}", .{endpoint});
-    const res = try self.request(.GET, try Uri.parse(endpoint), null, &response_writer.writer);
+    const res = try self.request(.GET, try Uri.parse(endpoint), .{ .response = .{ .body = &response_writer.writer } });
     switch (res.status) {
         .ok => {},
         .unauthorized, .forbidden => {
@@ -272,7 +272,7 @@ pub fn listObjects(
     var response_writer = std.Io.Writer.Allocating.init(self.allocator);
     defer response_writer.deinit();
 
-    const res = try self.request(.GET, try Uri.parse(uri_str), null, &response_writer.writer);
+    const res = try self.request(.GET, try Uri.parse(uri_str), .{ .response = .{ .body = &response_writer.writer } });
     if (res.status == .not_found) {
         return S3Error.BucketNotFound;
     }

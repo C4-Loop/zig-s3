@@ -12,7 +12,7 @@ const HttpClient = http.Client;
 
 const lib = @import("../lib.zig");
 const signer = @import("auth/signer.zig");
-const time_utils = @import("auth/time.zig");
+const UtcDateTime = @import("auth/time.zig").UtcDateTime;
 const S3Error = lib.S3Error;
 
 /// Configuration for the S3 client.
@@ -75,6 +75,14 @@ pub const S3Client = struct {
         self.allocator.destroy(self);
     }
 
+    const RequestOptions = struct {
+        body: ?[]const u8 = null,
+        response: struct {
+            head: ?*http.Client.Response.Head = null,
+            body: ?*std.io.Writer = null,
+        } = .{},
+    };
+
     /// Generic HTTP request handler used by all S3 operations.
     /// Handles request setup, authentication, and execution.
     ///
@@ -88,8 +96,7 @@ pub const S3Client = struct {
         self: *S3Client,
         method: http.Method,
         uri: Uri,
-        body: ?[]const u8,
-        writer: ?*std.io.Writer,
+        opts: RequestOptions,
     ) !http.Client.FetchResult {
         log.debug("Starting S3 request: method={s}", .{@tagName(method)});
 
@@ -116,16 +123,15 @@ pub const S3Client = struct {
         try headers.put("host", uri_host);
 
         // Calculate content hash
-        const content_hash = try signer.hashPayload(self.allocator, body orelse "");
+        const content_hash = try signer.hashPayload(self.allocator, opts.body orelse "");
         defer self.allocator.free(content_hash);
         try headers.put("x-amz-content-sha256", content_hash);
 
         // Get current timestamp and format it properly
-        const now = std.time.timestamp();
-        const timestamp = @as(i64, @intCast(now));
+        const timestamp: i64 = std.time.timestamp();
 
         // Format current time as x-amz-date header
-        const amz_date = try time_utils.UtcDateTime.init(timestamp).formatAmz(self.allocator);
+        const amz_date = try UtcDateTime.init(timestamp).formatAmz(self.allocator);
         defer self.allocator.free(amz_date);
         try headers.put("x-amz-date", amz_date);
 
@@ -135,14 +141,13 @@ pub const S3Client = struct {
             .access_key = self.config.access_key_id,
             .secret_key = self.config.secret_access_key,
             .region = self.config.region,
-            .service = "s3",
         };
 
         const params = signer.SigningParams{
             .method = @tagName(method),
             .path = uri_path,
             .headers = headers,
-            .body = body,
+            .body = opts.body,
             .timestamp = timestamp, // Use same timestamp for signing
         };
 
@@ -156,9 +161,8 @@ pub const S3Client = struct {
         // This results in the fetch hanging until the socket times out (~30s).
         const keep_alive: bool = method != .DELETE;
 
-        return try self.http_client.fetch(.{
-            .method = method,
-            .location = .{ .uri = uri },
+        var req = try self.http_client.request(method, uri, .{
+            .redirect_behavior = .not_allowed,
             .headers = .{
                 .host = .{ .override = uri_host },
                 .content_type = .{ .override = "application/xml" },
@@ -169,10 +173,53 @@ pub const S3Client = struct {
                 .{ .name = "x-amz-date", .value = amz_date },
                 .{ .name = "Authorization", .value = auth_header },
             },
-            .payload = body,
             .keep_alive = keep_alive,
-            .response_writer = writer,
         });
+        defer req.deinit();
+
+        if (opts.body) |payload| {
+            req.transfer_encoding = .{ .content_length = payload.len };
+            var b = try req.sendBody(&.{});
+            try b.writer.writeAll(payload);
+            try b.end();
+        } else {
+            try req.sendBodiless();
+        }
+
+        var response = try req.receiveHead(&.{});
+
+        if (opts.response.head) |response_head| {
+            // Dupe underlying head bytes and re-parse
+            const head_bytes = try self.allocator.dupe(u8, response.head.bytes);
+            response_head.* = try http.Client.Response.Head.parse(head_bytes);
+        }
+
+        const response_writer = opts.response.body orelse {
+            const reader = response.reader(&.{});
+            _ = reader.discardRemaining() catch |err| switch (err) {
+                error.ReadFailed => return response.bodyErr().?,
+            };
+            return .{ .status = response.head.status };
+        };
+
+        const decompress_buffer: []u8 = switch (response.head.content_encoding) {
+            .identity => &.{},
+            .zstd => try self.allocator.alloc(u8, std.compress.zstd.default_window_len),
+            .deflate, .gzip => try self.allocator.alloc(u8, std.compress.flate.max_window_len),
+            .compress => return error.UnsupportedCompressionMethod,
+        };
+        defer self.allocator.free(decompress_buffer);
+
+        var transfer_buffer: [64]u8 = undefined;
+        var decompress: http.Decompress = undefined;
+        const reader = response.readerDecompressing(&transfer_buffer, &decompress, decompress_buffer);
+
+        _ = reader.streamRemaining(response_writer) catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr().?,
+            else => |e| return e,
+        };
+
+        return .{ .status = response.head.status };
     }
 };
 
@@ -187,20 +234,36 @@ test "S3Client request signing" {
     var client = try S3Client.init(allocator, config);
     defer client.deinit();
 
+    var head: http.Client.Response.Head = undefined;
+    defer allocator.free(head.bytes);
+
     var response_writer = std.Io.Writer.Allocating.init(allocator);
     defer response_writer.deinit();
 
     const uri = try Uri.parse("https://examplebucket.s3.amazonaws.com/test.txt");
-    var res = try client.request(.GET, uri, null, &response_writer.writer);
+    _ = try client.request(.GET, uri, .{ .response = .{ .head = &head, .body = &response_writer.writer } });
 
-    // TODO how to get headers?
+    var contains_authorization: bool = false;
+    var contains_content_sha256: bool = false;
+    var contains_date: bool = false;
+
+    var it = head.iterateHeaders();
+    while (it.next()) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, "authorization")) {
+            contains_authorization = true;
+        } else if (std.ascii.eqlIgnoreCase(header.name, "x-amz-content-sha256")) {
+            contains_content_sha256 = true;
+        } else if (std.ascii.eqlIgnoreCase(header.name, "x-amz-date")) {
+            contains_date = true;
+        }
+    }
 
     // Verify authorization header is present
-    try std.testing.expect(res.headers.contains("authorization"));
+    try std.testing.expect(contains_authorization);
 
     // Verify required AWS headers are present
-    try std.testing.expect(res.headers.contains("x-amz-content-sha256"));
-    try std.testing.expect(res.headers.contains("x-amz-date"));
+    try std.testing.expect(contains_content_sha256);
+    try std.testing.expect(contains_date);
 }
 
 test "S3Client initialization" {
@@ -247,14 +310,31 @@ test "S3Client request with body" {
 
     const uri = try Uri.parse("https://example.s3.amazonaws.com/test.txt");
     const body = "Hello, S3!";
-    var res = try client.request(.PUT, uri, body, null);
 
-    // TODO headers?
+    var head: http.Client.Response.Head = undefined;
+    defer allocator.free(head.bytes);
 
-    try std.testing.expect(res.headers.contains("authorization"));
-    try std.testing.expect(res.headers.contains("x-amz-content-sha256"));
-    try std.testing.expect(res.headers.contains("x-amz-date"));
-    try std.testing.expect(res.transfer_encoding.content_length == body.len);
+    _ = try client.request(.PUT, uri, .{ .body = body, .response = .{ .head = &head } });
+
+    var contains_authorization: bool = false;
+    var contains_content_sha256: bool = false;
+    var contains_date: bool = false;
+
+    var it = head.iterateHeaders();
+    while (it.next()) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, "authorization")) {
+            contains_authorization = true;
+        } else if (std.ascii.eqlIgnoreCase(header.name, "x-amz-content-sha256")) {
+            contains_content_sha256 = true;
+        } else if (std.ascii.eqlIgnoreCase(header.name, "x-amz-date")) {
+            contains_date = true;
+        }
+    }
+
+    try std.testing.expect(contains_authorization);
+    try std.testing.expect(contains_content_sha256);
+    try std.testing.expect(contains_date);
+    try std.testing.expect(head.content_length == body.len);
 }
 
 test "S3Client error handling" {
@@ -269,7 +349,7 @@ test "S3Client error handling" {
     defer client.deinit();
 
     const uri = try Uri.parse("https://example.s3.amazonaws.com/test.txt");
-    const res = try client.request(.GET, uri, null, null);
+    const res = try client.request(.GET, uri, .{});
 
     // Test error mapping
     switch (res.status) {

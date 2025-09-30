@@ -30,8 +30,6 @@
 /// const credentials = Credentials{
 ///     .access_key = "AKIAIOSFODNN7EXAMPLE",
 ///     .secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-///     .region = "us-east-1",
-///     .service = "s3",
 /// };
 ///
 /// const params = SigningParams{
@@ -63,7 +61,7 @@ const Service = []const u8;
 pub const Credentials = struct {
     access_key: []const u8,
     secret_key: []const u8,
-    region: Region,
+    region: Region = "us-east-1",
     service: Service = "s3",
 };
 
@@ -437,8 +435,6 @@ test "AWS Signature V4" {
     const credentials = Credentials{
         .access_key = "AKIAIOSFODNN7EXAMPLE",
         .secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        .region = "us-east-1",
-        .service = "s3",
     };
 
     var headers = std.StringHashMap([]const u8).init(allocator);
@@ -511,8 +507,6 @@ test "deriveSigningKey" {
     const credentials = Credentials{
         .access_key = "AKIAIOSFODNN7EXAMPLE",
         .secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        .region = "us-east-1",
-        .service = "s3",
     };
 
     const timestamp = 1704067200; // 2024-01-01 00:00:00 UTC
@@ -532,8 +526,6 @@ test "signRequest full flow" {
     const credentials = Credentials{
         .access_key = "AKIAIOSFODNN7EXAMPLE",
         .secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        .region = "us-east-1",
-        .service = "s3",
     };
 
     var headers = std.StringHashMap([]const u8).init(allocator);

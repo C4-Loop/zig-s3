@@ -40,7 +40,7 @@ pub fn putObject(self: *S3Client, bucket_name: []const u8, key: []const u8, data
     const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
-    const res = try self.request(.PUT, try Uri.parse(uri_str), data, null);
+    const res = try self.request(.PUT, try Uri.parse(uri_str), .{ .body = data });
     if (res.status != .ok) {
         return S3Error.InvalidResponse;
     }
@@ -83,7 +83,10 @@ pub fn headObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !Ob
     const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
-    const res = try self.request(.HEAD, try Uri.parse(uri_str), null, null);
+    var head: http.Client.Response.Head = undefined;
+    defer self.allocator.free(head.bytes);
+
+    const res = try self.request(.HEAD, try Uri.parse(uri_str), .{ .response = .{ .head = &head } });
     if (res.status == .not_found) {
         return S3Error.ObjectNotFound;
     }
@@ -126,7 +129,7 @@ pub fn getObject(self: *S3Client, bucket_name: []const u8, key: []const u8) ![]c
     var response_writer = std.Io.Writer.Allocating.init(self.allocator);
     defer response_writer.deinit();
 
-    const res = try self.request(.GET, try Uri.parse(uri_str), null, &response_writer.writer);
+    const res = try self.request(.GET, try Uri.parse(uri_str), .{ .response = .{ .body = &response_writer.writer } });
     if (res.status == .not_found) {
         return S3Error.ObjectNotFound;
     }
@@ -155,7 +158,7 @@ pub fn deleteObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !
     const uri_str = try object_url(self, bucket_name, key);
     defer self.allocator.free(uri_str);
 
-    const res = try self.request(.DELETE, try Uri.parse(uri_str), null, null);
+    const res = try self.request(.DELETE, try Uri.parse(uri_str), .{});
     if (res.status != .no_content) {
         return S3Error.InvalidResponse;
     }
@@ -491,11 +494,7 @@ test "object operations" {
     try putObject(test_client, "test-bucket", "test-key", test_data);
 
     var metadata = try headObject(test_client, "test-bucket", "test-key");
-    if (metadata) |*m| {
-        defer m.deinit(allocator);
-    } else {
-        try std.testing.expect(false);
-    }
+    defer metadata.deinit(allocator);
 
     const retrieved = try getObject(test_client, "test-bucket", "test-key");
     defer allocator.free(retrieved);
