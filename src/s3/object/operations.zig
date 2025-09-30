@@ -94,13 +94,31 @@ pub fn headObject(self: *S3Client, bucket_name: []const u8, key: []const u8) !Ob
         return S3Error.InvalidResponse;
     }
 
-    // TODO read headers into metadata object
+    var last_modified: []const u8 = "";
+    errdefer self.allocator.free(last_modified);
+
+    var etag: []const u8 = "";
+    errdefer self.allocator.free(etag);
+
+    var it = head.iterateHeaders();
+    while (it.next()) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, "last-modified")) {
+            last_modified = try self.allocator.dupe(u8, header.value);
+        } else if (std.ascii.eqlIgnoreCase(header.name, "etag")) {
+            etag = try self.allocator.dupe(u8, header.value);
+        }
+    }
+
+    if (last_modified.len == 0 or etag.len == 0) return error.InvalidResponse;
+
+    const content_type = try self.allocator.dupe(u8, head.content_type orelse return error.InvalidResponse);
+    errdefer self.allocator.free(content_type);
 
     return .{
-        .size = 0,
-        .last_modified = "",
-        .etag = "",
-        .content_type = "",
+        .size = head.content_length orelse return error.InvalidResponse,
+        .last_modified = last_modified,
+        .etag = etag,
+        .content_type = content_type,
     };
 }
 
