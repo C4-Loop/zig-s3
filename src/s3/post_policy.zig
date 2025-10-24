@@ -350,9 +350,6 @@ pub fn presign(self: *Self, config: *const S3Config, opts: PresignOptions) !Pres
             _ = try post_url_writer.writer.write("/");
         }
         _ = try post_url_writer.writer.write(bucket_name);
-        if (form_data.get("key")) |object_name| {
-            try post_url_writer.writer.print("/{s}", .{object_name});
-        }
     }
     const post_url: []const u8 = try post_url_writer.toOwnedSlice();
 
